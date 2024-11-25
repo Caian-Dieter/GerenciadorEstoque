@@ -1,0 +1,187 @@
+create database dever_db;
+use dever_db;
+
+SET SQL_SAFE_UPDATES = 0;
+
+
+/* CRIAÇÃO TABELAS */
+
+CREATE TABLE Categoria (
+    id_Categoria INT PRIMARY KEY AUTO_INCREMENT,
+    Nome VARCHAR(50),
+    descricao VARCHAR(200)
+);
+
+create table Produto(
+	id_Produto int primary key auto_increment,
+	Nome varchar(50),
+	descricao varchar(200),
+	Quantidade int default 0,
+	Valor_Compra DECIMAL(10, 2),
+	Valor_Venda DECIMAL(10, 2),
+	categoria_id int,
+    foreign key (categoria_id) references Categoria(id_Categoria)
+);
+
+
+/* TABELA PARA MOVIMENTAÇÃO E GERAÇÃO DE RELATORIO(tentativa) */
+create table Movimentacao(
+id_movimentacao int auto_increment primary key,
+tipo enum('Entrada', 'Saida'),
+quantidade int,
+data_Movimentacao date  ,
+produto_id int,
+foreign key (produto_id) references Produto(id_Produto)
+);
+
+/* FIM CRIAÇÃO TABELAS */
+
+
+/* CRIAÇÃO DAS PROCEDURES */
+
+/* procedure de cadastro */
+DELIMITER //
+create procedure cadastrarProduto (
+	IN nome_prod VARCHAR(50), 
+    IN descricao_prod TEXT, 
+    IN quantidade_prod INT,
+    IN preco_compra DECIMAL(10,2), 
+    IN preco_venda DECIMAL(10,2),
+    in categoria int
+)
+
+BEGIN
+	insert into Produto(Nome, descricao, Quantidade, Valor_Compra, Valor_Venda, categoria_id)
+	values(nome_prod, descricao_prod, quantidade_prod, preco_compra, preco_venda, categoria);
+
+END //
+DELIMITER ;
+
+
+
+DELIMITER //
+create procedure cadastrarCategoria (
+	in nome_Categoria varchar(50),
+	in descricao_Categoria varchar(50)
+)
+begin
+	insert into Categoria (Nome, descricao)
+	values (nome_categoria, descricao_categoria);
+
+end //
+DELIMITER ;
+
+
+/* procedure de consulta de produtos com filtros */
+DELIMITER //
+create procedure ConsultarProduto (
+	in nome_produto varchar(50),
+    in categoria_id int,
+    in quantidade_min int
+)
+
+BEGIN
+	select id_produto, p.Nome, p.descricao, p.Quantidade, Valor_Compra, Valor_Venda, c.Nome as Categoria
+    from Produto p
+    join Categoria c on P.categoria_id = C.id_categoria
+    where (nome_produto is null or p.Nome like CONCAT ('%', nome_produto , '%'))
+    and(categoria_id is null or P.categoria_id = C.id_categoria)
+    and (quantidade_min is null or p.Quantidade >= quantidade_min);
+    
+END //
+DELIMITER ;
+
+/* Procedure de relatorio movimentação(tentativa) */
+DELIMITER //
+create procedure relatorioMovimentacao()
+BEGIN
+	select m.id_Movimentacao, p.Nome as Produto, m.tipo, m.quantidade, m.data_movimentacao
+    from Movimentacao m
+    join Produto p on m.produto_id = p.id_Produto
+    order by m.data_movimentacao desc;
+    
+end //
+DELIMITER ;
+
+/* Procedure de relatorio de produtos com baixo estoque(tentativa) */
+DELIMITER //
+create procedure RelatorioBaixoEstoque(
+	in quantidade_limite int
+)
+begin
+	select p.id_Produto, p.Nome, p.descricao, p.Quantidade, c.Nome as Categoria
+    from Produto p
+    join Categoria c on p.categoria_id = c.id_categoria
+    where p.Quantidade < quantidade_limite;
+
+end //    
+DELIMITER ;
+
+/* FIM DAS PROCEDURES */
+
+/* CRIAÇÃO DE TRIGGER */
+
+DELIMITER //
+
+CREATE TRIGGER gerar_alerta_estoque
+AFTER UPDATE ON Produto
+FOR EACH ROW
+BEGIN
+    -- Verifica se o estoque está abaixo de um limite mínimo
+    IF NEW.quantidade < 10 THEN
+        INSERT INTO AlertaEstoque (produto_id, mensagem) 
+        VALUES (NEW.id_produto, CONCAT('Estoque baixo: ', NEW.quantidade, ' unidades disponíveis.'));
+    END IF;
+
+    -- Verifica se o estoque excede um limite máximo (opcional)
+    IF NEW.quantidade > 100 THEN
+        INSERT INTO AlertaEstoque (produto_id, mensagem) 
+        VALUES (NEW.id_produto, 'Estoque alto: Verifique a capacidade de armazenamento.');
+    END IF;
+END//
+
+DELIMITER ;
+
+
+DELIMITER //
+CREATE TRIGGER atualizarQuantidadeProduto
+AFTER INSERT ON Movimentacao
+FOR EACH ROW
+BEGIN
+    IF NEW.tipo = 'Entrada' THEN
+        -- Incrementar a quantidade do produto
+        UPDATE Produto
+        SET Quantidade = Quantidade + NEW.quantidade
+        WHERE id_Produto = NEW.produto_id;
+    ELSEIF NEW.tipo = 'Saida' THEN
+        -- Verificar se há estoque suficiente antes de decrementar
+        IF (SELECT Quantidade FROM Produto WHERE id_Produto = NEW.produto_id) < NEW.quantidade THEN
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Quantidade insuficiente em estoque para saída!';
+        ELSE
+            UPDATE Produto
+            SET Quantidade = Quantidade - NEW.quantidade
+            WHERE id_Produto = NEW.produto_id;
+        END IF;
+    END IF;
+END //
+DELIMITER ;
+
+CREATE TABLE AlertaEstoque (
+    id_alerta INT AUTO_INCREMENT PRIMARY KEY,
+    produto_id INT,
+    mensagem VARCHAR(255),
+    data_geracao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (produto_id) REFERENCES Produto(id_Produto)
+);
+
+
+describe categoria;
+
+describe produto;
+
+select * from produto; 
+
+
+insert into categoria(Nome,descricao)
+values("madeira","muito dura");
